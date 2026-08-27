@@ -19,13 +19,22 @@ frontend/   React (Vite) app that displays live subtitles
 
 ### Configuration
 
-Set in `backend/docker-compose.yml` under the `ingest` service:
+`CHUNK_SECONDS` (audio chunk length in seconds) is set in
+`backend/docker-compose.yml` and must match on both `ingest` and
+`transcriber`. There's no `STREAMER_ID` to configure — `ingest` runs as a
+generic worker pool and is told which streamer to handle at runtime via the
+frontend's **Watch** button (`POST /watch`), not an env var.
 
-- `STREAMER_ID` — Twitch channel name (e.g. `dead_oryx`). Required, no
-  default — the ingest service's channel URL is derived from this
-  (`https://www.twitch.tv/{STREAMER_ID}`).
-- `CHUNK_SECONDS` — audio chunk length in seconds (must match on both
-  `ingest` and `transcriber`).
+### Python environment
+
+From `backend/`:
+
+```
+python -m venv venv
+venv\Scripts\pip install confluent-kafka streamlink faster-whisper fastapi "uvicorn[standard]" redis pydantic
+```
+
+(`venv/Scripts/...` on Windows; `venv/bin/...` on macOS/Linux.)
 
 ### Start
 
