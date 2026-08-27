@@ -11,6 +11,35 @@ backend/    Kafka + ingest + transcriber + api services (Docker Compose)
 frontend/   React (Vite) app that displays live subtitles
 ```
 
+## Architecture
+
+```mermaid
+flowchart LR
+    UI["React frontend"]
+
+    subgraph backend [Backend]
+        API["api.py<br/>FastAPI + websocket"]
+        ING["ingest.py<br/>worker pool"]
+        TRX["transcriber.py<br/>faster-whisper"]
+        KAFKA[("Kafka")]
+        REDIS[("Redis")]
+    end
+
+    TWITCH["Twitch (streamlink/ffmpeg)"]
+
+    UI -- "POST /watch" --> API
+    UI <-. "websocket /ws/transcripts/{id}" .-> API
+
+    API -- "RPUSH ingest-jobs\nSET active:{id}\nPUBLISH stop:{id}" --> REDIS
+    ING -- "BLPOP ingest-jobs\nEXPIRE active:{id}\nSUBSCRIBE stop:{id}" --> REDIS
+
+    ING --> TWITCH
+    ING -- "produce audio-chunks" --> KAFKA
+    TRX -- "consume audio-chunks" --> KAFKA
+    TRX -- "produce transcripts" --> KAFKA
+    API -- "consume transcripts" --> KAFKA
+```
+
 ## Backend
 
 ### Requirements
