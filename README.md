@@ -15,29 +15,28 @@ frontend/   React (Vite) app that displays live subtitles
 
 ```mermaid
 flowchart LR
-    UI["React frontend"]
+    USER(["User's browser"])
+    API["api.py"]
+    REDISQ[("Redis: job queue")]
+    ING["ingest.py<br/>worker pool"]
+    TWITCH["Twitch"]
+    TRX["transcriber.py"]
 
-    subgraph backend [Backend]
-        API["api.py<br/>FastAPI + websocket"]
-        ING["ingest.py<br/>worker pool"]
-        TRX["transcriber.py<br/>faster-whisper"]
-        KAFKA[("Kafka")]
-        REDIS[("Redis")]
+    subgraph KAFKA [Kafka]
+        direction LR
+        T1[("audio-chunks")]
+        T2[("transcripts")]
     end
 
-    TWITCH["Twitch (streamlink/ffmpeg)"]
-
-    UI -- "POST /watch" --> API
-    UI <-. "websocket /ws/transcripts/{id}" .-> API
-
-    API -- "RPUSH ingest-jobs\nSET active:{id}\nPUBLISH stop:{id}" --> REDIS
-    ING -- "BLPOP ingest-jobs\nEXPIRE active:{id}\nSUBSCRIBE stop:{id}" --> REDIS
-
-    ING --> TWITCH
-    ING -- "produce audio-chunks" --> KAFKA
-    TRX -- "consume audio-chunks" --> KAFKA
-    TRX -- "produce transcripts" --> KAFKA
-    API -- "consume transcripts" --> KAFKA
+    USER -- "1. click Watch" --> API
+    API -- "2. queue job" --> REDISQ
+    REDISQ -- "3. job assigned" --> ING
+    TWITCH -- "4. audio" --> ING
+    ING -- "5. publish" --> T1
+    T1 -- "6. consume" --> TRX
+    TRX -- "7. publish" --> T2
+    T2 -- "8. consume" --> API
+    API -- "9. live captions" --> USER
 ```
 
 ## Backend
