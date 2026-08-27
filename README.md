@@ -20,7 +20,7 @@ flowchart LR
     REDISQ[("Redis: job queue")]
     ING["ingest.py<br/>worker pool"]
     TWITCH["Twitch"]
-    TRX["transcriber.py"]
+    TRX["transcriber.py<br/>faster-whisper (ML model)"]
 
     subgraph KAFKA [Kafka]
         direction LR
@@ -36,7 +36,7 @@ flowchart LR
     T1 -- "6. consume" --> TRX
     TRX -- "7. publish" --> T2
     T2 -- "8. consume" --> API
-    API -- "9. live captions" --> USER
+    API -- "9. websocket: live captions" --> USER
 ```
 
 ## Backend
