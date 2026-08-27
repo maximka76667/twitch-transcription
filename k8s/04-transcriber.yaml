@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transcriber
+  namespace: twitch-transcription
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: transcriber
+  template:
+    metadata:
+      labels:
+        app: transcriber
+    spec:
+      containers:
+        - name: transcriber
+          image: twitch-transcription-transcriber:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: KAFKA_BOOTSTRAP
+              value: kafka:9092
+            - name: CHUNK_SECONDS
+              value: "4"
