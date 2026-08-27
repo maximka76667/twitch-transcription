@@ -14,6 +14,8 @@ from pydantic import BaseModel
 
 TOPIC = "transcripts"
 JOB_QUEUE = "ingest-jobs"
+# must match the refresh cadence in ingest.py's heartbeat loop
+ACTIVE_TTL_SECONDS = 15
 KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "localhost:29092")
 REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
@@ -89,8 +91,12 @@ def watch(req: WatchRequest):
     streamer_id = _streamer_id_from_url(req.channel_url)
     # SET ... NX is atomic: only the first caller for a given streamer_id
     # wins the flag and queues a job, so concurrent /watch calls for the
-    # same stream don't queue duplicate ingest jobs.
-    if redis_client.set(f"active:{streamer_id}", "1", nx=True):
+    # same stream don't queue duplicate ingest jobs. The TTL is a safety
+    # net: the assigned ingest worker refreshes it while actually running
+    # (see ingest.py), so a worker that dies uncleanly (no finally cleanup
+    # on SIGTERM) doesn't leave this flag stuck forever, blocking future
+    # /watch calls for the same streamer.
+    if redis_client.set(f"active:{streamer_id}", "1", nx=True, ex=ACTIVE_TTL_SECONDS):
         redis_client.rpush(JOB_QUEUE, streamer_id)
         status = "queued"
     else:

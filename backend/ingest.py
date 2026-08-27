@@ -18,6 +18,8 @@ KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "localhost:29092")
 REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
 JOB_QUEUE = "ingest-jobs"
+# must match the TTL api.py sets on the "active" flag
+ACTIVE_TTL_SECONDS = 15
 
 producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP})
 redis_client = redis.Redis(
@@ -79,6 +81,14 @@ def ingest_stream(streamer_id: str) -> None:
 
     try:
         while True:
+            # renew the "active" flag's TTL while genuinely still working this
+            # job — best-effort: if a refresh is missed, the flag just expires
+            # a little early rather than the job crashing over it
+            try:
+                redis_client.expire(f"active:{streamer_id}", ACTIVE_TTL_SECONDS)
+            except redis.exceptions.RedisError:
+                pass
+
             try:
                 stopped = pubsub.get_message(ignore_subscribe_messages=True, timeout=0.5)
             except redis.exceptions.RedisError as e:
