@@ -1,4 +1,4 @@
-# twitch-transcript
+# twitch-transcription
 
 Live speech-to-text pipeline for a Twitch stream (streamlink -> ffmpeg -> Kafka
 -> faster-whisper -> Kafka -> websocket API -> React frontend). See
