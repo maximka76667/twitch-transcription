@@ -28,15 +28,15 @@ flowchart LR
         T2[("Kafka: transcripts")]
     end
 
-    USER -- "1. click Watch" --> API
-    API -- "2. queue job" --> REDISQ
-    REDISQ -- "3. job assigned" --> ING
-    TWITCH -- "4. audio" --> ING
-    ING -- "5. publish" --> T1
-    T1 -- "6. consume" --> TRX
-    TRX -- "7. publish" --> T2
-    T2 -- "8. consume" --> API
-    API -- "9. websocket: live captions" --> USER
+    USER -- "1. POST /watch" --> API
+    API -- "2. RPUSH ingest-jobs" --> REDISQ
+    REDISQ -- "3. BLPOP ingest-jobs" --> ING
+    TWITCH -- "4. streamlink/ffmpeg" --> ING
+    ING -- "5. produce audio-chunks" --> T1
+    T1 -- "6. consume audio-chunks" --> TRX
+    TRX -- "7. produce transcripts" --> T2
+    T2 -- "8. consume transcripts" --> API
+    API -- "9. websocket /ws/transcripts/{id}" --> USER
 ```
 
 ## Backend
