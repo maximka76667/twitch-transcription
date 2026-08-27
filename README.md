@@ -22,11 +22,8 @@ flowchart LR
     TWITCH["Twitch"]
     TRX["transcriber.py"]
 
-    subgraph KAFKA [Kafka]
-        direction LR
-        T1[("audio-chunks")]
-        T2[("transcripts")]
-    end
+    T1[("Kafka: audio-chunks")]
+    T2[("Kafka: transcripts")]
 
     USER -- "1. click Watch" --> API
     API -- "2. queue job" --> REDISQ
