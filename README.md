@@ -117,6 +117,95 @@ Full teardown (removes containers; images stay cached, so the next
 docker compose down
 ```
 
+## Kubernetes (k3d)
+
+Alternative to Docker Compose — runs the same 5 services (kafka, redis,
+ingest, transcriber, api) as a local Kubernetes cluster instead. Manifests
+live in `k8s/`.
+
+### Requirements
+
+- Docker Desktop (or Docker Engine)
+- [k3d](https://k3d.io/) — lightweight local Kubernetes via Docker
+- `kubectl`
+
+### Create the cluster
+
+One-time, or after a full teardown (`k3d cluster delete`):
+
+```
+k3d cluster create twitch-transcription -p "8000:8000@loadbalancer"
+```
+
+The port mapping keeps `api` reachable at `localhost:8000`, matching the
+`api` Service's `type: LoadBalancer` in `k8s/05-api.yaml`, so the frontend
+needs no changes.
+
+### Build and import images
+
+From `backend/`, build each image, then hand them into the cluster (k3d
+can't see your regular Docker images otherwise):
+
+```
+docker build -f Dockerfile.ingest -t twitch-transcription-ingest:local .
+docker build -f Dockerfile.transcriber -t twitch-transcription-transcriber:local .
+docker build -f Dockerfile.api -t twitch-transcription-api:local .
+
+k3d image import twitch-transcription-ingest:local twitch-transcription-transcriber:local twitch-transcription-api:local -c twitch-transcription
+```
+
+### Deploy
+
+From the repo root:
+
+```
+kubectl apply -f k8s/
+```
+
+### Check status
+
+```
+kubectl get pods -n twitch-transcription -w
+```
+
+(`Ctrl+C` to stop watching once everything shows `Running`.)
+
+```
+kubectl logs -f -n twitch-transcription deployment/transcriber
+```
+
+Swap `deployment/transcriber` for `deployment/ingest` / `deployment/api` /
+`deployment/kafka` / `deployment/redis` for other services.
+
+### After changing backend code
+
+Unlike Compose, Kubernetes won't notice an image's contents changed just
+because you rebuilt it with the same tag — rebuild, re-import, then force
+the affected Deployment to roll new pods:
+
+```
+docker build -f Dockerfile.<service> -t twitch-transcription-<service>:local .
+k3d image import twitch-transcription-<service>:local -c twitch-transcription
+kubectl rollout restart deployment/<service> -n twitch-transcription
+```
+
+### Stop / resume
+
+Pause the cluster (frees CPU/RAM, keeps all state — no rebuild/reimport/
+reapply needed on resume):
+
+```
+k3d cluster stop twitch-transcription
+k3d cluster start twitch-transcription
+```
+
+Full teardown (deletes the cluster entirely; next `k3d cluster create` starts
+from scratch):
+
+```
+k3d cluster delete twitch-transcription
+```
+
 ## Frontend
 
 ### Requirements
