@@ -1,0 +1,68 @@
+.page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 32px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.watch-form {
+  display: flex;
+  gap: 8px;
+}
+
+.watch-form input {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 16px;
+}
+
+.watch-form button {
+  padding: 8px 16px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #888;
+  font-size: 14px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #888;
+}
+
+.dot.connecting {
+  background: #d9a441;
+}
+
+.dot.open {
+  background: #3fb950;
+}
+
+.dot.closed,
+.dot.error {
+  background: #f85149;
+}
+
+.transcript {
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 16px;
+  height: 400px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.transcript p {
+  margin: 0;
+}
