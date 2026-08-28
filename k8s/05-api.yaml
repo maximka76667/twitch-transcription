@@ -13,6 +13,7 @@ spec:
       labels:
         app: api
     spec:
+      enableServiceLinks: false
       containers:
         - name: api
           image: twitch-transcription-api:local

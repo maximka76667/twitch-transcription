@@ -59,6 +59,9 @@ spec:
     - name: broker
       port: 9092
       targetPort: 9092
+    - name: controller
+      port: 9093
+      targetPort: 9093
     - name: broker-host
       port: 29092
       targetPort: 29092

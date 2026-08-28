@@ -13,6 +13,7 @@ spec:
       labels:
         app: ingest
     spec:
+      enableServiceLinks: false
       containers:
         - name: ingest
           image: twitch-transcription-ingest:local
