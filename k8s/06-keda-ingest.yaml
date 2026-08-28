@@ -1,0 +1,35 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: ingest-scaledjob
+  namespace: twitch-transcription
+spec:
+  maxReplicaCount: 5
+  pollingInterval: 5
+  scalingStrategy:
+    strategy: accurate
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    backoffLimit: 0
+    template:
+      spec:
+        restartPolicy: Never
+        enableServiceLinks: false
+        containers:
+          - name: ingest
+            image: twitch-transcription-ingest:local
+            imagePullPolicy: IfNotPresent
+            env:
+              - name: KAFKA_BOOTSTRAP
+                value: kafka:9092
+              - name: REDIS_HOST
+                value: redis
+              - name: CHUNK_SECONDS
+                value: "4"
+  triggers:
+    - type: redis
+      metadata:
+        address: redis.twitch-transcription.svc.cluster.local:6379
+        listName: ingest-jobs
+        listLength: "1"

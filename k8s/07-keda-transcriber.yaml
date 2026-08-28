@@ -1,0 +1,17 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: transcriber-scaledobject
+  namespace: twitch-transcription
+spec:
+  scaleTargetRef:
+    name: transcriber
+  minReplicaCount: 1
+  maxReplicaCount: 4
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka.twitch-transcription.svc.cluster.local:9092
+        consumerGroup: asr-workers
+        topic: audio-chunks
+        lagThreshold: "5"

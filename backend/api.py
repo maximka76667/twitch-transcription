@@ -16,6 +16,10 @@ TOPIC = "transcripts"
 JOB_QUEUE = "ingest-jobs"
 # must match the refresh cadence in ingest.py's heartbeat loop
 ACTIVE_TTL_SECONDS = 15
+# tolerate a brief disconnect (page reload, flaky network) before tearing
+# down the stream, so a reload-and-reconnect doesn't drop viewers to 0 and
+# trigger cleanup + a duplicate ingest job on the next /watch
+DISCONNECT_GRACE_SECONDS = 5
 KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "localhost:29092")
 REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.environ.get("REDIS_PORT", "6379"))
@@ -120,9 +124,14 @@ async def ws_transcripts(websocket: WebSocket, streamer_id: str):
         subscribers[streamer_id].remove(queue)
         remaining = redis_client.decr(f"viewers:{streamer_id}")
         if remaining <= 0:
-            redis_client.delete(f"viewers:{streamer_id}")
-            redis_client.delete(f"active:{streamer_id}")
-            redis_client.publish(f"stop:{streamer_id}", "stop")
+            # a reload/brief reconnect might bring a viewer back before this
+            # fires — re-check rather than tearing down immediately
+            await asyncio.sleep(DISCONNECT_GRACE_SECONDS)
+            still_remaining = redis_client.get(f"viewers:{streamer_id}")
+            if still_remaining is None or int(still_remaining) <= 0:
+                redis_client.delete(f"viewers:{streamer_id}")
+                redis_client.delete(f"active:{streamer_id}")
+                redis_client.publish(f"stop:{streamer_id}", "stop")
 
 
 def _not_implemented(**_kwargs):

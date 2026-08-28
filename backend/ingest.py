@@ -119,21 +119,23 @@ def ingest_stream(streamer_id: str) -> None:
         redis_client.delete(f"active:{streamer_id}")
 
 
-print("[ingest] worker ready, waiting for jobs...")
+print("[ingest] worker starting, checking for a job...")
 try:
-    while True:
-        # short timeout, matching the same poll cadence used elsewhere
-        # (transcriber.py/api.py's consumer.poll(1.0)) — Docker's networking
-        # here doesn't reliably deliver a response for a long-held BLPOP, so
-        # a timeout is treated as the normal "no job yet" case, not an error
+    # runs as a k8s Job (one per queued stream, created by KEDA's
+    # ScaledJob) rather than a long-lived pool worker, so this grabs at
+    # most one job and exits instead of looping forever — a busy pod no
+    # longer hides future queue items from KEDA's scaling decision
+    job = None
+    for attempt in range(3):
         try:
-            job = redis_client.blpop(JOB_QUEUE, timeout=1)
+            job = redis_client.blpop(JOB_QUEUE, timeout=5)
+            break
         except redis.exceptions.RedisError as e:
-            print(f"[ingest] redis connection issue, reconnecting: {e}")
+            print(f"[ingest] redis connection issue (attempt {attempt + 1}/3): {e}")
             redis_client.connection_pool.disconnect()
-            continue
-        if job is None:
-            continue
+    if job is None:
+        print("[ingest] no job available, exiting")
+    else:
         _, streamer_id = job
         ingest_stream(streamer_id)
 except KeyboardInterrupt:
