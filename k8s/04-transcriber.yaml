@@ -17,6 +17,9 @@ spec:
         - name: transcriber
           image: twitch-transcription-transcriber:local
           imagePullPolicy: IfNotPresent
+          ports:
+            - name: metrics
+              containerPort: 9090
           env:
             - name: KAFKA_BOOTSTRAP
               value: kafka:9092

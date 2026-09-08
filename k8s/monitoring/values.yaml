@@ -1,0 +1,25 @@
+# Helm values for the prometheus-community/kube-prometheus-stack chart.
+# Installed automatically by scripts/start-k8s.mjs (release "monitoring", namespace
+# "monitoring") whenever this file exists.
+#
+# Tuned for a local k3d dev cluster: no persistent volumes, short retention, no
+# Alertmanager - this is for live visibility while iterating, not long-term storage
+# or alert routing.
+#
+# Reach Grafana with:
+#   kubectl port-forward -n monitoring svc/monitoring-grafana 3000:80
+# then open http://localhost:3000 (login: admin / admin)
+
+grafana:
+  adminPassword: admin
+  persistence:
+    enabled: false
+
+prometheus:
+  prometheusSpec:
+    retention: 6h
+    # No storageSpec set - Prometheus falls back to an emptyDir, which is fine for a
+    # local dev cluster that gets torn down/recreated.
+
+alertmanager:
+  enabled: false

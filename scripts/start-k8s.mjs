@@ -16,6 +16,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { CLUSTER_NAME, NAMESPACE, step, warn, run, capture, findCluster } from "./lib.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -23,9 +24,8 @@ const backendDir = path.join(repoRoot, "backend");
 const frontendDir = path.join(repoRoot, "frontend");
 const k8sDir = path.join(repoRoot, "k8s");
 const monitoringValues = path.join(k8sDir, "monitoring", "values.yaml");
+const podMonitorsDir = path.join(k8sDir, "monitoring", "podmonitors");
 
-const CLUSTER_NAME = "twitch-transcription";
-const NAMESPACE = "twitch-transcription";
 const SERVICES = ["ingest", "transcriber", "api"];
 
 const args = process.argv.slice(2);
@@ -33,69 +33,49 @@ const skipBuild = args.includes("--skip-build");
 const skipFrontend = args.includes("--skip-frontend");
 const watch = args.includes("--watch");
 
-function step(msg) {
-  console.log(`\n==> ${msg}`);
-}
-
-function warn(msg) {
-  console.log(`    (!) ${msg}`);
-}
-
-// shell: true so PATH resolution finds Windows shims (.exe/.cmd, e.g. k3d/kubectl/helm
-// installed via scoop/choco) - without it, Windows spawnSync can ENOENT on names that
-// resolve fine from an interactive shell. Node quotes the args array for us either way.
-
-// Run a command, streaming output live. Throws on non-zero exit unless allowFailure.
-function run(cmd, cmdArgs, { cwd, allowFailure = false } = {}) {
-  const result = spawnSync(cmd, cmdArgs, {
-    cwd,
-    stdio: "inherit",
-    shell: true,
-  });
-  if (result.error) throw result.error;
-  if (result.status !== 0 && !allowFailure) {
-    throw new Error(
-      `${cmd} ${cmdArgs.join(" ")} exited with code ${result.status}`,
-    );
-  }
-  return result.status;
-}
-
-// Same as run(), but captures stdout instead of streaming it (for JSON/status checks).
-function capture(cmd, cmdArgs, { cwd } = {}) {
-  const result = spawnSync(cmd, cmdArgs, {
-    cwd,
-    encoding: "utf8",
-    shell: true,
-  });
-  return { status: result.status, stdout: result.stdout ?? "" };
-}
-
 // Each step below owns its own "is this already running" check and warns instead of
 // re-doing work when it is. main() just calls them in order.
 
+function createCluster() {
+  run("k3d", [
+    "cluster",
+    "create",
+    CLUSTER_NAME,
+    "-p",
+    "8000:8000@loadbalancer",
+  ]);
+}
+
 function startCluster() {
   step(`Checking k3d cluster '${CLUSTER_NAME}'`);
-  const listResult = capture("k3d", ["cluster", "list", "-o", "json"]);
-  const clusters =
-    listResult.status === 0 ? JSON.parse(listResult.stdout || "[]") : [];
-  const existing = clusters.find((c) => c.name === CLUSTER_NAME);
+  const existing = findCluster();
 
   if (!existing) {
     console.log("Cluster not found, creating it");
-    run("k3d", [
-      "cluster",
-      "create",
-      CLUSTER_NAME,
-      "-p",
-      "8000:8000@loadbalancer",
-    ]);
+    createCluster();
     return;
   }
 
   if (!existing.serversRunning) {
     console.log("Cluster exists but is stopped, starting it");
-    run("k3d", ["cluster", "start", CLUSTER_NAME]);
+    // `k3d cluster start` re-binds the SAME host port the cluster was created with
+    // (e.g. loadbalancer port). On Windows that port can go stale between sessions -
+    // Hyper-V/WSL2 dynamically reserves port ranges on boot/sleep/VPN-connect, and if
+    // this cluster's port now falls in an excluded range, start fails permanently
+    // (retrying the same port never helps). `cluster create` doesn't have this problem
+    // since it rolls a fresh random port every time - so fall back to delete+recreate.
+    const status = run("k3d", ["cluster", "start", CLUSTER_NAME], {
+      allowFailure: true,
+    });
+    if (status !== 0) {
+      step("Cluster failed to start (likely a stale port - see comment above)");
+      warn(
+        "Falling back to delete+recreate. This forces a fresh cluster, so KEDA and monitoring will need to reinstall this run - expect it to take longer than usual.",
+      );
+      run("k3d", ["cluster", "delete", CLUSTER_NAME]);
+      createCluster();
+      console.log("Cluster recreated successfully.");
+    }
     return;
   }
   warn(`Cluster '${CLUSTER_NAME}' is already running, skipping create/start.`);
@@ -128,6 +108,26 @@ function buildAndImportImages() {
   step("Importing images into k3d");
   const images = SERVICES.map((s) => `twitch-transcription-${s}:local`);
   run("k3d", ["image", "import", ...images, "-c", CLUSTER_NAME]);
+}
+
+function startKeda() {
+  step("Checking KEDA (needed for ScaledJob/ScaledObject CRDs in k8s/06-07)");
+  const status = capture("helm", ["status", "keda", "-n", "keda"]);
+  if (status.status === 0) {
+    warn("'keda' release already installed, skipping.");
+    return;
+  }
+
+  console.log("KEDA not found, installing it (CRDs must exist before applying k8s/ manifests)");
+  run("helm", ["repo", "add", "kedacore", "https://kedacore.github.io/charts"], {
+    allowFailure: true,
+  });
+  run("helm", ["repo", "update", "kedacore"]);
+  run("helm", [
+    "install", "keda", "kedacore/keda",
+    "-n", "keda", "--create-namespace",
+    "--wait",
+  ]);
 }
 
 function applyManifests() {
@@ -171,35 +171,42 @@ function startMonitoring() {
       "-f",
       monitoringValues,
     ]);
-    return;
+  } else {
+    console.log(
+      "No existing 'monitoring' release, installing kube-prometheus-stack",
+    );
+    run(
+      "helm",
+      [
+        "repo",
+        "add",
+        "prometheus-community",
+        "https://prometheus-community.github.io/helm-charts",
+      ],
+      {
+        allowFailure: true,
+      },
+    );
+    run("helm", ["repo", "update", "prometheus-community"]);
+    run("helm", [
+      "install",
+      "monitoring",
+      "prometheus-community/kube-prometheus-stack",
+      "-n",
+      "monitoring",
+      "--create-namespace",
+      "-f",
+      monitoringValues,
+    ]);
   }
 
-  console.log(
-    "No existing 'monitoring' release, installing kube-prometheus-stack",
-  );
-  run(
-    "helm",
-    [
-      "repo",
-      "add",
-      "prometheus-community",
-      "https://prometheus-community.github.io/helm-charts",
-    ],
-    {
-      allowFailure: true,
-    },
-  );
-  run("helm", ["repo", "update", "prometheus-community"]);
-  run("helm", [
-    "install",
-    "monitoring",
-    "prometheus-community/kube-prometheus-stack",
-    "-n",
-    "monitoring",
-    "--create-namespace",
-    "-f",
-    monitoringValues,
-  ]);
+  // PodMonitor/ServiceMonitor CRDs only exist now that the chart above is installed -
+  // apply these separately from the main k8s/ folder for that reason (see comment in
+  // k8s/monitoring/podmonitors/transcriber.yaml).
+  if (existsSync(podMonitorsDir)) {
+    step("Applying PodMonitors");
+    run("kubectl", ["apply", "-f", podMonitorsDir]);
+  }
 }
 
 function showStatus() {
@@ -209,6 +216,9 @@ function showStatus() {
 
 function printHints() {
   console.log("\napi reachable at http://localhost:8000");
+  if (existsSync(monitoringValues)) {
+    console.log("Grafana:           kubectl port-forward -n monitoring svc/monitoring-grafana 3000:80  (login: admin / admin)");
+  }
   console.log(`Watch pods:        kubectl get pods -n ${NAMESPACE} -w`);
   console.log(`Tail logs:         kubectl logs -f -n ${NAMESPACE} deployment/<service>`);
   console.log("Up and running. Press Ctrl+C to stop the frontend and pause the cluster.");
@@ -261,6 +271,7 @@ function shutdown() {
 function main() {
   startCluster();
   buildAndImportImages();
+  startKeda();
   applyManifests();
   startMonitoring();
   showStatus();

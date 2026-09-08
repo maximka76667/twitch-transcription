@@ -1,0 +1,25 @@
+# Tells the Prometheus Operator (installed by the kube-prometheus-stack helm release,
+# see k8s/monitoring/values.yaml) to scrape transcriber pods directly on their "metrics"
+# port - no Service needed, since transcriber has no other reason to have one (it's a
+# Kafka consumer that only dials out, nothing dials in to it).
+#
+# Kept out of the main k8s/ folder on purpose: the PodMonitor kind only exists after
+# that helm release installs its CRDs, so this can't be applied by the same `kubectl
+# apply -f k8s/` that runs before monitoring is installed - scripts/start-k8s.mjs applies
+# this directory separately, after the helm install/upgrade succeeds.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: transcriber
+  namespace: twitch-transcription
+  labels:
+    # matches the Prometheus Operator's default podMonitorSelector, which selects
+    # PodMonitors labeled with the helm release name ("monitoring")
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: transcriber
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 15s
