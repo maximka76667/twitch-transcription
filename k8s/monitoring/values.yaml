@@ -2,9 +2,8 @@
 # Installed automatically by scripts/start-k8s.mjs (release "monitoring", namespace
 # "monitoring") whenever this file exists.
 #
-# Tuned for a local k3d dev cluster: no persistent volumes, short retention, no
-# Alertmanager - this is for live visibility while iterating, not long-term storage
-# or alert routing.
+# Tuned for a local k3d dev cluster: short retention, no Alertmanager - this is for
+# live visibility while iterating, not long-term storage or alert routing.
 #
 # Reach Grafana with:
 #   kubectl port-forward -n monitoring svc/monitoring-grafana 3000:80
@@ -13,7 +12,8 @@
 grafana:
   adminPassword: admin
   persistence:
-    enabled: false
+    enabled: true
+    size: 1Gi
 
 prometheus:
   prometheusSpec:
