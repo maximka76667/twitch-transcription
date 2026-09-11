@@ -1,0 +1,14 @@
+# Copy this file to terraform.tfvars (gitignored - never commit that one)
+# and fill in real values.
+
+# Your current public IP, /32 (single address). Find it with:
+#   curl -s -4 https://api.ipify.org
+allowed_admin_cidr = "203.0.113.10/32"
+
+# Contents of an SSH public key, e.g. from:
+#   cat ~/.ssh/id_rsa.pub
+ssh_public_key = "ssh-rsa AAAA... your-key-here"
+
+# Optional overrides - defaults already set in variables.tf
+# region        = "eu-central-1"
+# instance_type = "t3.small"
