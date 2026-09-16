@@ -95,6 +95,14 @@ overhead? See [`docs/docker-compose.md`](docs/docker-compose.md) — plain
 Docker Compose, no cluster involved, at the cost of no autoscaling and no
 monitoring.
 
+## AWS deployment (in progress)
+
+Moving off local k3d onto a real EC2 box (Terraform-provisioned,
+Ansible-configured), per `DESIGN.md`'s "Planned: Terraform / AWS deployment"
+section. Provisioning and k3s bootstrap are done; app deployment, TLS/domain,
+and frontend serving aren't yet. See
+[`docs/aws-deploy.md`](docs/aws-deploy.md).
+
 ## Backend development
 
 ### Configuration
