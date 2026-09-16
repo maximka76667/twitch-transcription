@@ -1,0 +1,74 @@
+# Configures a bare Ubuntu box (created by terraform/) into a working k3s
+# node: swap file, k3s itself, then fetches+rewrites the kubeconfig so local
+# kubectl/helm can manage the cluster directly. See DESIGN.md's "Terraform /
+# AWS deployment" section for the overall architecture.
+- hosts: k3s_box
+  become: true
+  tasks:
+    # Swap must exist BEFORE k3s installs, not after - k3s's own startup
+    # (pulling+starting containerd, coredns, the API server) is exactly the
+    # moment memory pressure peaks on a 2GB box. Guarded by
+    # ansible_swaptotal_mb so re-running the playbook doesn't recreate an
+    # already-active swapfile.
+    - name: Create 2GB swapfile
+      ansible.builtin.command:
+        cmd: fallocate -l 2G /swapfile
+      when: ansible_facts['swaptotal_mb'] == 0
+
+    - name: Set swapfile permissions
+      ansible.builtin.file:
+        path: /swapfile
+        mode: "0600"
+      when: ansible_facts['swaptotal_mb'] == 0
+
+    - name: Format swapfile as swap
+      ansible.builtin.command:
+        cmd: mkswap /swapfile
+      when: ansible_facts['swaptotal_mb'] == 0
+
+    - name: Enable swapfile
+      ansible.builtin.command:
+        cmd: swapon /swapfile
+      when: ansible_facts['swaptotal_mb'] == 0
+
+    - name: Persist swapfile in fstab
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        line: "/swapfile none swap sw 0 0"
+
+    # Traefik disabled - not used, Caddy (installed separately, directly on
+    # the host) handles ingress/TLS instead, so Traefik would just sit there
+    # unused, competing for RAM on a 2GB box for no benefit.
+    # --kubelet-arg=fail-swap-on=false is required: kubelet refuses to start
+    # at all if it detects swap enabled, unless told explicitly to tolerate
+    # it. --tls-san adds the public IP as a valid name on k3s's
+    # self-signed API cert - without it, k3s only knows its own private VPC
+    # IP/internal service IP/loopback, and kubectl from outside the VPC
+    # fails TLS verification against the public IP.
+    - name: Install k3s
+      ansible.builtin.shell:
+        cmd: curl -sfL https://get.k3s.io | sh -s - --disable traefik --kubelet-arg=fail-swap-on=false --tls-san {{ ansible_host }}
+        creates: /usr/local/bin/k3s
+
+    - name: Wait for k3s kubeconfig to be written
+      ansible.builtin.wait_for:
+        path: /etc/rancher/k3s/k3s.yaml
+        state: present
+
+    # k3s writes its kubeconfig with server: https://127.0.0.1:6443, only
+    # correct if kubectl runs on the box itself. Fetch it locally and
+    # rewrite that address to the box's real public IP so local kubectl/helm
+    # can manage this cluster directly from your own machine.
+    - name: Fetch kubeconfig to local machine
+      ansible.builtin.fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "{{ playbook_dir }}/kubeconfig-aws.yaml"
+        flat: true
+
+    - name: Rewrite kubeconfig server address to the box's public IP
+      delegate_to: localhost
+      become: false
+      ansible.builtin.replace:
+        path: "{{ playbook_dir }}/kubeconfig-aws.yaml"
+        regexp: 'https://127\.0\.0\.1:6443'
+        replace: "https://{{ ansible_host }}:6443"

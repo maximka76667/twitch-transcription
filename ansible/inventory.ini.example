@@ -1,0 +1,13 @@
+# Populate ansible_host with the real IP after `terraform apply` (see
+# terraform/outputs.tf's public_ip output).
+#
+# WINDOWS ONLY
+# ansible_ssh_private_key_file points at a WSL-native copy of the key, not
+# the /mnt/c/... Windows path directly - SSH refuses private keys with the
+# overly-open permissions NTFS-mounted files show up with in WSL. One-time
+# setup, run inside WSL:
+#   mkdir -p ~/.ssh
+#   cp /mnt/c/Users/user/.ssh/twitch-transcription ~/.ssh/twitch-transcription
+#   chmod 600 ~/.ssh/twitch-transcription
+[k3s_box]
+app ansible_host=REPLACE_WITH_TERRAFORM_PUBLIC_IP ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/twitch-transcription

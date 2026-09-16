@@ -13,3 +13,8 @@ override.tf.json
 terraform.rc
 # .terraform.lock.hcl is intentionally NOT ignored - it pins provider
 # versions for reproducible `terraform init`, same idea as a lockfile.
+
+# Ansible
+ansible/kubeconfig-aws.yaml
+ansible/inventory.ini
+*.retry
