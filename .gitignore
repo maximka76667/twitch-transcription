@@ -13,6 +13,8 @@ override.tf.json
 terraform.rc
 # .terraform.lock.hcl is intentionally NOT ignored - it pins provider
 # versions for reproducible `terraform init`, same idea as a lockfile.
+# terraform/exam/ - scratch practice files, not part of the real project
+terraform/exam/
 
 # Ansible
 ansible/kubeconfig-aws.yaml

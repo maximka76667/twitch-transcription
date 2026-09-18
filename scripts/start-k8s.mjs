@@ -16,7 +16,15 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CLUSTER_NAME, NAMESPACE, step, warn, run, capture, findCluster } from "./lib.mjs";
+import {
+  CLUSTER_NAME,
+  NAMESPACE,
+  step,
+  warn,
+  run,
+  capture,
+  findCluster,
+} from "./lib.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -27,6 +35,14 @@ const monitoringValues = path.join(k8sDir, "monitoring", "values.yaml");
 const podMonitorsDir = path.join(k8sDir, "monitoring", "podmonitors");
 
 const SERVICES = ["ingest", "transcriber", "api"];
+
+// Pinned, not "latest" - reproducibility (same principle as
+// .terraform.lock.hcl/package-lock.json): an unpinned chart install could
+// silently pick up a different version - and a different values.yaml schema
+// - between one run and the next with no code change on our end. Bump these
+// deliberately, not automatically.
+const KEDA_CHART_VERSION = "2.20.2";
+const MONITORING_CHART_VERSION = "91.4.1";
 
 const args = process.argv.slice(2);
 const skipBuild = args.includes("--skip-build");
@@ -118,21 +134,37 @@ function startKeda() {
     return;
   }
 
-  console.log("KEDA not found, installing it (CRDs must exist before applying k8s/ manifests)");
-  run("helm", ["repo", "add", "kedacore", "https://kedacore.github.io/charts"], {
-    allowFailure: true,
-  });
+  console.log(
+    "KEDA not found, installing it (CRDs must exist before applying k8s/ manifests)",
+  );
+  run(
+    "helm",
+    ["repo", "add", "kedacore", "https://kedacore.github.io/charts"],
+    {
+      allowFailure: true,
+    },
+  );
   run("helm", ["repo", "update", "kedacore"]);
   run("helm", [
-    "install", "keda", "kedacore/keda",
-    "-n", "keda", "--create-namespace",
+    "install",
+    "keda",
+    "kedacore/keda",
+    "--version",
+    KEDA_CHART_VERSION,
+    "-n",
+    "keda",
+    "--create-namespace",
     "--wait",
   ]);
 }
 
 function applyManifests() {
   step("Applying k8s manifests");
-  run("kubectl", ["apply", "-f", k8sDir]);
+  // -k (kustomize), not -f: k8s/base/ + k8s/overlays/aws/ let the same
+  // manifests target either local (:local, k3d image import) or AWS
+  // (Docker Hub) images without duplicating the files - k8s/base is the
+  // local target.
+  run("kubectl", ["apply", "-k", path.join(k8sDir, "base")]);
 
   // k3d/k8s won't notice an image's contents changed just because the tag is reused,
   // so force a rollout whenever we just imported new images.
@@ -157,6 +189,24 @@ function startMonitoring() {
   }
 
   step("Checking 'monitoring' helm release");
+  // repo add/update runs unconditionally, before the install-vs-upgrade
+  // branch - the local helm repo cache (%TEMP%\helm\repository\ on Windows)
+  // can go missing between runs (e.g. temp cleared), and `helm upgrade`
+  // needs the cached index just as much as `helm install` does.
+  run(
+    "helm",
+    [
+      "repo",
+      "add",
+      "prometheus-community",
+      "https://prometheus-community.github.io/helm-charts",
+    ],
+    {
+      allowFailure: true,
+    },
+  );
+  run("helm", ["repo", "update", "prometheus-community"]);
+
   const status = capture("helm", ["status", "monitoring", "-n", "monitoring"]);
   if (status.status === 0) {
     warn(
@@ -166,6 +216,8 @@ function startMonitoring() {
       "upgrade",
       "monitoring",
       "prometheus-community/kube-prometheus-stack",
+      "--version",
+      MONITORING_CHART_VERSION,
       "-n",
       "monitoring",
       "-f",
@@ -175,23 +227,12 @@ function startMonitoring() {
     console.log(
       "No existing 'monitoring' release, installing kube-prometheus-stack",
     );
-    run(
-      "helm",
-      [
-        "repo",
-        "add",
-        "prometheus-community",
-        "https://prometheus-community.github.io/helm-charts",
-      ],
-      {
-        allowFailure: true,
-      },
-    );
-    run("helm", ["repo", "update", "prometheus-community"]);
     run("helm", [
       "install",
       "monitoring",
       "prometheus-community/kube-prometheus-stack",
+      "--version",
+      MONITORING_CHART_VERSION,
       "-n",
       "monitoring",
       "--create-namespace",
@@ -217,11 +258,17 @@ function showStatus() {
 function printHints() {
   console.log("\napi reachable at http://localhost:8000");
   if (existsSync(monitoringValues)) {
-    console.log("Grafana:           kubectl port-forward -n monitoring svc/monitoring-grafana 3000:80  (login: admin / admin)");
+    console.log(
+      "Grafana:           kubectl port-forward -n monitoring svc/monitoring-grafana 3000:80  (login: admin / admin)",
+    );
   }
   console.log(`Watch pods:        kubectl get pods -n ${NAMESPACE} -w`);
-  console.log(`Tail logs:         kubectl logs -f -n ${NAMESPACE} deployment/<service>`);
-  console.log("Up and running. Press Ctrl+C to stop the frontend and pause the cluster.");
+  console.log(
+    `Tail logs:         kubectl logs -f -n ${NAMESPACE} deployment/<service>`,
+  );
+  console.log(
+    "Up and running. Press Ctrl+C to stop the frontend and pause the cluster.",
+  );
 }
 
 // Started async (not spawnSync) so main() can move on and wait for Ctrl+C instead of
@@ -262,8 +309,13 @@ function shutdown() {
     console.log("Stopping frontend dev server");
     frontendChild.kill();
   }
-  console.log(`Pausing k3d cluster '${CLUSTER_NAME}' (state is kept - resume by running this script again)`);
-  spawnSync("k3d", ["cluster", "stop", CLUSTER_NAME], { stdio: "inherit", shell: true });
+  console.log(
+    `Pausing k3d cluster '${CLUSTER_NAME}' (state is kept - resume by running this script again)`,
+  );
+  spawnSync("k3d", ["cluster", "stop", CLUSTER_NAME], {
+    stdio: "inherit",
+    shell: true,
+  });
   console.log("Done.");
   process.exit(0);
 }
@@ -281,7 +333,9 @@ function main() {
 
   if (watch) {
     console.log(`\nWatching pod status. Press Ctrl+C to stop.`);
-    run("kubectl", ["get", "pods", "-n", NAMESPACE, "-w"], { allowFailure: true });
+    run("kubectl", ["get", "pods", "-n", NAMESPACE, "-w"], {
+      allowFailure: true,
+    });
     shutdown();
     return;
   }

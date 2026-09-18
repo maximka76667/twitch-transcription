@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# transcriber and api are standard Deployments - Kustomize's image matcher
+# finds spec.template.spec.containers[].image automatically.
+images:
+  - name: twitch-transcription-transcriber
+    newName: max76667/twitch-transcription-transcriber
+    newTag: latest
+  - name: twitch-transcription-api
+    newName: max76667/twitch-transcription-api
+    newTag: latest
+
+# ingest's image lives inside a KEDA ScaledJob at
+# spec.jobTargetRef.template.spec.containers[] - not the standard
+# spec.template path, so the images: matcher above won't reach it. Patched
+# explicitly instead.
+patches:
+  - target:
+      kind: ScaledJob
+      name: ingest-scaledjob
+    patch: |-
+      - op: replace
+        path: /spec/jobTargetRef/template/spec/containers/0/image
+        value: max76667/twitch-transcription-ingest:latest
