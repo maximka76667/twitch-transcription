@@ -9,10 +9,10 @@ resources:
 images:
   - name: twitch-transcription-transcriber
     newName: max76667/twitch-transcription-transcriber
-    newTag: c29fabf
+    newTag: a6121ba
   - name: twitch-transcription-api
     newName: max76667/twitch-transcription-api
-    newTag: c29fabf
+    newTag: a6121ba
 
 # ingest's image lives inside a KEDA ScaledJob at
 # spec.jobTargetRef.template.spec.containers[] - not the standard
@@ -25,7 +25,7 @@ patches:
     patch: |-
       - op: replace
         path: /spec/jobTargetRef/template/spec/containers/0/image
-        value: max76667/twitch-transcription-ingest:c29fabf
+        value: max76667/twitch-transcription-ingest:a6121ba
 
   # The AWS box has 2 vCPUs: more than 2 whisper replicas just compete for the
   # same cores (and only as many replicas as there are busy streams can work
