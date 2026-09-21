@@ -1,0 +1,21 @@
+# Rendered by Ansible from this template - the "domain" variable a few lines
+# down gets filled in with the real domain at deploy time (see the "Render
+# Caddyfile" task in playbook.yml).
+#
+# One domain, two jobs: known backend routes go to the api Service
+# (k3s's built-in ServiceLB binds it via an iptables PREROUTING DNAT rule -
+# the Linux kernel refuses to apply that to 127.0.0.1/localhost traffic
+# ("martian packet" protection), so this has to target the node's real
+# private IP instead, not loopback); everything else falls through to the
+# built frontend's static files.
+{{ domain }} {
+	@api path /health /watch /ws/* /transcripts/*
+	handle @api {
+		reverse_proxy {{ ansible_default_ipv4.address }}:8000
+	}
+	handle {
+		root * /var/www/frontend
+		file_server
+		try_files {path} /index.html
+	}
+}

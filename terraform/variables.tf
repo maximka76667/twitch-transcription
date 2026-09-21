@@ -7,7 +7,7 @@ variable "region" {
 variable "instance_type" {
   description = "EC2 instance type for the k3s + Kafka + whisper box"
   type        = string
-  default     = "t3.small"
+  default     = "m7i-flex.large"
 }
 
 variable "allowed_admin_cidr" {

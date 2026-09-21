@@ -26,3 +26,15 @@ patches:
       - op: replace
         path: /spec/jobTargetRef/template/spec/containers/0/image
         value: max76667/twitch-transcription-ingest:latest
+
+  # The AWS box has 2 vCPUs: more than 2 whisper replicas just compete for the
+  # same cores (and only as many replicas as there are busy streams can work
+  # anyway), which made captions lag more, not less.
+  - patch: |-
+      apiVersion: keda.sh/v1alpha1
+      kind: ScaledObject
+      metadata:
+        name: transcriber-scaledobject
+        namespace: twitch-transcription
+      spec:
+        maxReplicaCount: 2

@@ -1,5 +1,8 @@
 # Populate ansible_host with the real IP after `terraform apply` (see
-# terraform/outputs.tf's public_ip output).
+# terraform/outputs.tf's public_ip output). domain is derived from that same
+# IP for now (sslip.io - free, no registration, but changes if the box is
+# ever destroyed+recreated - swap for a real registered domain once this is
+# no longer just for testing).
 #
 # WINDOWS ONLY
 # ansible_ssh_private_key_file points at a WSL-native copy of the key, not
@@ -10,4 +13,4 @@
 #   cp /mnt/c/Users/user/.ssh/twitch-transcription ~/.ssh/twitch-transcription
 #   chmod 600 ~/.ssh/twitch-transcription
 [k3s_box]
-app ansible_host=REPLACE_WITH_TERRAFORM_PUBLIC_IP ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/twitch-transcription
+app ansible_host=REPLACE_WITH_TERRAFORM_PUBLIC_IP ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/twitch-transcription domain=REPLACE_WITH_IP_DASHED.sslip.io

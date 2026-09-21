@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
 
-const API_HOST = 'localhost:8000'
+// Same-origin once served over HTTPS (via Caddy on the real deployment) -
+// falls back to the local dev backend port otherwise, since npm run dev
+// serves the frontend (5173) and backend (8000) on different ports.
+const isSecure = window.location.protocol === 'https:'
+const API_HOST = isSecure ? window.location.host : 'localhost:8000'
+const WS_PROTOCOL = isSecure ? 'wss' : 'ws'
+const HTTP_PROTOCOL = isSecure ? 'https' : 'http'
 
 type TranscriptLine = {
   start: number
@@ -23,7 +29,7 @@ function App() {
 
     setLines([])
     setStatus('connecting')
-    const ws = new WebSocket(`ws://${API_HOST}/ws/transcripts/${streamerId}`)
+    const ws = new WebSocket(`${WS_PROTOCOL}://${API_HOST}/ws/transcripts/${streamerId}`)
 
     ws.onopen = () => setStatus('open')
     ws.onerror = () => setStatus('error')
@@ -49,7 +55,7 @@ function App() {
         onSubmit={async (e) => {
           e.preventDefault()
           const channel_url = `https://www.twitch.tv/${streamerIdInput.trim()}`
-          const res = await fetch(`http://${API_HOST}/watch`, {
+          const res = await fetch(`${HTTP_PROTOCOL}://${API_HOST}/watch`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ channel_url }),

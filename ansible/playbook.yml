@@ -4,6 +4,10 @@
 # AWS deployment" section for the overall architecture.
 - hosts: k3s_box
   become: true
+  vars:
+    # Pinned for reproducibility, same reasoning as the chart versions in
+    # scripts/start-k8s.mjs - bump deliberately, not automatically.
+    keda_chart_version: "2.20.2"
   tasks:
     # Swap must exist BEFORE k3s installs, not after - k3s's own startup
     # (pulling+starting containerd, coredns, the API server) is exactly the
@@ -72,3 +76,71 @@
         path: "{{ playbook_dir }}/kubeconfig-aws.yaml"
         regexp: 'https://127\.0\.0\.1:6443'
         replace: "https://{{ ansible_host }}:6443"
+
+    # KEDA's CRDs (ScaledJob/ScaledObject) must exist before k8s/ manifests
+    # are applied. helm runs on the box itself, using k3s's own kubeconfig
+    # (server: 127.0.0.1 is correct from here), so nothing depends on which
+    # tools the machine running Ansible has.
+    - name: Install helm
+      ansible.builtin.shell:
+        cmd: curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+        creates: /usr/local/bin/helm
+
+    # The kubeconfig file is written slightly before k3s's API answers, so
+    # wait for the node to be Ready before talking to it.
+    - name: Wait for the k3s node to be Ready
+      ansible.builtin.command:
+        cmd: k3s kubectl wait --for=condition=Ready node --all --timeout=180s
+      changed_when: false
+
+    # upgrade --install (not plain install) so re-running the playbook
+    # doesn't fail once the release exists. Longer --timeout than helm's
+    # default 5m - KEDA's pods can be slow to settle on a small box.
+    - name: Install KEDA
+      ansible.builtin.shell:
+        cmd: |
+          helm repo add kedacore https://kedacore.github.io/charts
+          helm upgrade --install keda kedacore/keda --version {{ keda_chart_version }} --namespace keda --create-namespace --wait --timeout 10m
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    # Official Caddy apt repo setup, chained as one shell task (same
+    # curl-pipe pattern as the k3s install above) - guarded by `creates` so
+    # re-running the playbook doesn't redo it.
+    - name: Install Caddy
+      ansible.builtin.shell:
+        cmd: |
+          apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+          apt update
+          apt install -y caddy
+        creates: /usr/bin/caddy
+
+    # Copy (not create - trailing slash on src means "contents of dist/",
+    # not "dist/ itself") the built frontend onto the box, to the path the
+    # Caddyfile's `root` directive expects.
+    - name: Copy built frontend to the box
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../frontend/dist/"
+        dest: /var/www/frontend/
+
+    # notify below means the handler only fires if this task actually
+    # changed the file - not on every single playbook run.
+    - name: Render Caddyfile
+      ansible.builtin.template:
+        src: Caddyfile.j2
+        dest: /etc/caddy/Caddyfile
+      notify: Restart caddy
+
+    - name: Enable Caddy service
+      ansible.builtin.systemd:
+        name: caddy
+        state: started
+        enabled: true
+
+  handlers:
+    - name: Restart caddy
+      ansible.builtin.systemd:
+        name: caddy
+        state: restarted
