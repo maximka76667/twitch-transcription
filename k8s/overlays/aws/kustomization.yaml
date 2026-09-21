@@ -38,3 +38,28 @@ patches:
         namespace: twitch-transcription
       spec:
         maxReplicaCount: 2
+
+  # Measured with Grafana on this box: with two replicas on two vCPUs, the
+  # "small" model with default thread pools took 4-9s per 4s chunk under load
+  # (captions fell behind, ~4 in 10 chunks dropped). One thread per replica,
+  # skipping silent audio and the "base" model brought it to ~1.1s with no
+  # drops. Kustomize merges containers by name and env by variable name, so
+  # this adds to the base env (KAFKA_BOOTSTRAP, CHUNK_SECONDS) without replacing it.
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: transcriber
+        namespace: twitch-transcription
+      spec:
+        template:
+          spec:
+            containers:
+              - name: transcriber
+                env:
+                  - name: CPU_THREADS
+                    value: "1"
+                  - name: VAD_FILTER
+                    value: "1"
+                  - name: WHISPER_MODEL
+                    value: base
