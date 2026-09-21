@@ -24,6 +24,8 @@ import {
   run,
   capture,
   findCluster,
+  installMonitoring,
+  MONITORING_VALUES,
 } from "./lib.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -31,18 +33,15 @@ const repoRoot = path.resolve(__dirname, "..");
 const backendDir = path.join(repoRoot, "backend");
 const frontendDir = path.join(repoRoot, "frontend");
 const k8sDir = path.join(repoRoot, "k8s");
-const monitoringValues = path.join(k8sDir, "monitoring", "values.yaml");
-const podMonitorsDir = path.join(k8sDir, "monitoring", "podmonitors");
 
 const SERVICES = ["ingest", "transcriber", "api"];
 
 // Pinned, not "latest" - reproducibility (same principle as
 // .terraform.lock.hcl/package-lock.json): an unpinned chart install could
 // silently pick up a different version - and a different values.yaml schema
-// - between one run and the next with no code change on our end. Bump these
-// deliberately, not automatically.
+// - between one run and the next with no code change on our end. Bump this
+// deliberately, not automatically. (The monitoring chart's pin lives in lib.mjs.)
 const KEDA_CHART_VERSION = "2.20.2";
-const MONITORING_CHART_VERSION = "91.4.1";
 
 const args = process.argv.slice(2);
 const skipBuild = args.includes("--skip-build");
@@ -180,76 +179,6 @@ function applyManifests() {
   }
 }
 
-function startMonitoring() {
-  if (!existsSync(monitoringValues)) {
-    warn(
-      "No k8s/monitoring/values.yaml yet, skipping Prometheus/Grafana (add that file to enable this step).",
-    );
-    return;
-  }
-
-  step("Checking 'monitoring' helm release");
-  // repo add/update runs unconditionally, before the install-vs-upgrade
-  // branch - the local helm repo cache (%TEMP%\helm\repository\ on Windows)
-  // can go missing between runs (e.g. temp cleared), and `helm upgrade`
-  // needs the cached index just as much as `helm install` does.
-  run(
-    "helm",
-    [
-      "repo",
-      "add",
-      "prometheus-community",
-      "https://prometheus-community.github.io/helm-charts",
-    ],
-    {
-      allowFailure: true,
-    },
-  );
-  run("helm", ["repo", "update", "prometheus-community"]);
-
-  const status = capture("helm", ["status", "monitoring", "-n", "monitoring"]);
-  if (status.status === 0) {
-    warn(
-      "'monitoring' release already running, upgrading in case values changed.",
-    );
-    run("helm", [
-      "upgrade",
-      "monitoring",
-      "prometheus-community/kube-prometheus-stack",
-      "--version",
-      MONITORING_CHART_VERSION,
-      "-n",
-      "monitoring",
-      "-f",
-      monitoringValues,
-    ]);
-  } else {
-    console.log(
-      "No existing 'monitoring' release, installing kube-prometheus-stack",
-    );
-    run("helm", [
-      "install",
-      "monitoring",
-      "prometheus-community/kube-prometheus-stack",
-      "--version",
-      MONITORING_CHART_VERSION,
-      "-n",
-      "monitoring",
-      "--create-namespace",
-      "-f",
-      monitoringValues,
-    ]);
-  }
-
-  // PodMonitor/ServiceMonitor CRDs only exist now that the chart above is installed -
-  // apply these separately from the main k8s/ folder for that reason (see comment in
-  // k8s/monitoring/podmonitors/transcriber.yaml).
-  if (existsSync(podMonitorsDir)) {
-    step("Applying PodMonitors");
-    run("kubectl", ["apply", "-f", podMonitorsDir]);
-  }
-}
-
 function showStatus() {
   step("Pod status");
   run("kubectl", ["get", "pods", "-n", NAMESPACE]);
@@ -257,7 +186,7 @@ function showStatus() {
 
 function printHints() {
   console.log("\napi reachable at http://localhost:8000");
-  if (existsSync(monitoringValues)) {
+  if (existsSync(MONITORING_VALUES)) {
     console.log(
       "Grafana:           kubectl port-forward -n monitoring svc/monitoring-grafana 3000:80  (login: admin / admin)",
     );
@@ -325,7 +254,7 @@ function main() {
   buildAndImportImages();
   startKeda();
   applyManifests();
-  startMonitoring();
+  installMonitoring();
   showStatus();
   startFrontend();
 

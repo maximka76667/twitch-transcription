@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 // Brings up the AWS deployment from nothing: terraform apply -> inventory.ini ->
-// frontend build -> Ansible -> kubectl apply. See docs/aws-deploy.md.
+// frontend build -> Ansible -> kubectl apply -> monitoring. See docs/aws-deploy.md.
 //
 // Usage:
-//   node scripts/deploy.mjs up
+//   node scripts/deploy.mjs up                  # everything, incl. Prometheus/Grafana
+//   node scripts/deploy.mjs up --no-monitoring  # skip Prometheus/Grafana
+//   node scripts/deploy.mjs monitoring          # (re)install just monitoring on the running box
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { step, run, capture } from "./lib.mjs";
+import { step, run, capture, installMonitoring } from "./lib.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
@@ -19,13 +21,19 @@ const ansibleDir = path.join(repoRoot, "ansible");
 const frontendDir = path.join(repoRoot, "frontend");
 const overlayDir = path.join(repoRoot, "k8s", "overlays", "aws");
 const kubeconfig = path.join(ansibleDir, "kubeconfig-aws.yaml");
+const monitoringValuesAws = path.join(
+  repoRoot,
+  "k8s",
+  "monitoring",
+  "values-aws.yaml",
+);
 
 // Ansible needs a Linux environment; on Windows that's this WSL distro.
 const WSL_DISTRO = "Ubuntu";
 
 // Runs before anything that costs money, so a missing tool fails here instead of
 // after terraform apply has already created the instance.
-function preflight() {
+function preflight({ withMonitoring }) {
   step("Checking required tools");
   const isWindows = process.platform === "win32";
 
@@ -34,6 +42,7 @@ function preflight() {
     ["kubectl", "kubectl", ["version", "--client"]],
     ["npm", "npm", ["--version"]],
   ];
+  if (withMonitoring) checks.push(["helm", "helm", ["version"]]);
   if (isWindows) {
     checks.push([
       `ansible-playbook inside WSL (${WSL_DISTRO})`,
@@ -175,8 +184,15 @@ function applyManifests() {
   run("kubectl", ["apply", "-k", overlayDir, "--kubeconfig", kubeconfig]);
 }
 
-async function up() {
-  preflight();
+function setupMonitoring() {
+  installMonitoring({ kubeconfig, extraValues: [monitoringValuesAws] });
+  console.log(
+    `Grafana: kubectl port-forward -n monitoring svc/monitoring-grafana 3000:80 --kubeconfig ${path.relative(repoRoot, kubeconfig)}  (then http://localhost:3000, admin / admin)`,
+  );
+}
+
+async function up({ withMonitoring }) {
+  preflight({ withMonitoring });
   const myIp = await getPublicIp();
   console.log(`Your public IP: ${myIp}`);
 
@@ -186,6 +202,7 @@ async function up() {
   await waitForSsh(ip);
   runAnsible();
   applyManifests();
+  if (withMonitoring) setupMonitoring();
 
   console.log(`\nUp: https://${domain}`);
   console.log(
@@ -193,10 +210,13 @@ async function up() {
   );
 }
 
-const command = process.argv[2];
+const [command, ...flags] = process.argv.slice(2);
 if (command === "up") {
-  await up();
+  await up({ withMonitoring: !flags.includes("--no-monitoring") });
+} else if (command === "monitoring") {
+  preflight({ withMonitoring: true });
+  setupMonitoring();
 } else {
-  console.error("Usage: node scripts/deploy.mjs up");
+  console.error("Usage: node scripts/deploy.mjs up [--no-monitoring] | monitoring");
   process.exit(1);
 }

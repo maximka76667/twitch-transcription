@@ -13,6 +13,10 @@ CHUNK_SECONDS = int(os.environ.get("CHUNK_SECONDS", "3"))
 KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "localhost:29092")
 METRICS_PORT = int(os.environ.get("METRICS_PORT", "9090"))
 MAX_CHUNK_AGE_SECONDS = float(os.environ.get("MAX_CHUNK_AGE_SECONDS", "10"))
+# Whisper tuning knobs, so they can be changed per deployment without a rebuild.
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")
+CPU_THREADS = int(os.environ.get("CPU_THREADS", "0"))  # 0 = library default
+VAD_FILTER = os.environ.get("VAD_FILTER", "0") == "1"  # skip silent stretches
 
 CHUNKS_PROCESSED = Counter(
     "transcriber_chunks_processed_total",
@@ -38,7 +42,9 @@ consumer.subscribe([TOPIC])
 
 producer = Producer({"bootstrap.servers": KAFKA_BOOTSTRAP})
 
-model = WhisperModel("small", device="cpu", compute_type="int8")
+model = WhisperModel(
+    WHISPER_MODEL, device="cpu", compute_type="int8", cpu_threads=CPU_THREADS
+)
 
 start_http_server(METRICS_PORT)
 
@@ -70,7 +76,9 @@ try:
         with INFERENCE_SECONDS.time():
             # beam_size=1 (greedy) instead of faster-whisper's default beam of 5:
             # much less CPU per chunk for a small accuracy cost.
-            segments, _ = model.transcribe(audio, language="en", beam_size=1)
+            segments, _ = model.transcribe(
+                audio, language="en", beam_size=1, vad_filter=VAD_FILTER
+            )
             segments = list(segments)  # force the generator; transcribe() itself is lazy
         for seg in segments:
             start, end = offset + seg.start, offset + seg.end

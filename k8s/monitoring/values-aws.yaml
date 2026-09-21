@@ -1,0 +1,16 @@
+# AWS-specific layer on top of k8s/monitoring/values.yaml: scripts/deploy.mjs
+# passes both files to helm (-f values.yaml -f values-aws.yaml) and later files win.
+#
+# k3s runs the control-plane components inside a single process instead of as
+# separate pods with their own metrics ports, so the chart's default scrapers for
+# them would show up as permanently "down" targets (and waste scrape work on a
+# 2-vCPU box). Turn them off.
+
+kubeEtcd:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeProxy:
+  enabled: false
