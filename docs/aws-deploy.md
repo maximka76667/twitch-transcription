@@ -191,20 +191,20 @@ restarted).
 Captions are CPU-bound on this box. `transcriber.py` reads its settings from
 environment variables, so they can be changed without rebuilding the image:
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `WHISPER_MODEL` | `small` | model size (`base`, `tiny` are faster) |
-| `CPU_THREADS` | `0` | threads per replica (0 = library default) |
-| `VAD_FILTER` | `0` | `1` skips chunks without speech |
-| `MAX_CHUNK_AGE_SECONDS` | `10` | chunks older than this are dropped, not transcribed |
+| Variable                | Default | Meaning                                             |
+| ----------------------- | ------- | --------------------------------------------------- |
+| `WHISPER_MODEL`         | `small` | model size (`base`, `tiny` are faster)              |
+| `CPU_THREADS`           | `0`     | threads per replica (0 = library default)           |
+| `VAD_FILTER`            | `0`     | `1` skips chunks without speech                     |
+| `MAX_CHUNK_AGE_SECONDS` | `10`    | chunks older than this are dropped, not transcribed |
 
 Measured with two busy streams (each replica has a 4-second budget per chunk):
 
-| Setting | Average per chunk |
-|---|---|
-| `small`, default threads | 4.4-7.5s, overloaded |
+| Setting                                    | Average per chunk                                                              |
+| ------------------------------------------ | ------------------------------------------------------------------------------ |
+| `small`, default threads                   | 4.4-7.5s, overloaded                                                           |
 | `small` + `CPU_THREADS=1` + `VAD_FILTER=1` | 3.4s when streamers were quiet, 9.1s when both talked; ~4 in 10 chunks dropped |
-| `base` + `CPU_THREADS=1` + `VAD_FILTER=1` | ~1.1s, no drops, CPU ~40% |
+| `base` + `CPU_THREADS=1` + `VAD_FILTER=1`  | ~1.1s, no drops, CPU ~40%                                                      |
 
 The AWS overlay sets `base`, `CPU_THREADS=1` and `VAD_FILTER=1`. Load depends on
 how much the streamers talk, so judge a setting after several minutes with both

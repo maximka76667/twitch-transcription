@@ -4,11 +4,11 @@ The AWS cluster can't use `k3d image import` (that only works for a local k3d
 cluster sharing your Docker Desktop), so the three backend images live on
 Docker Hub and the cluster pulls them itself.
 
-| Service | Dockerfile | Image |
-|---|---|---|
-| ingest | `backend/Dockerfile.ingest` | `max76667/twitch-transcription-ingest:<version>` |
+| Service     | Dockerfile                       | Image                                                 |
+| ----------- | -------------------------------- | ----------------------------------------------------- |
+| ingest      | `backend/Dockerfile.ingest`      | `max76667/twitch-transcription-ingest:<version>`      |
 | transcriber | `backend/Dockerfile.transcriber` | `max76667/twitch-transcription-transcriber:<version>` |
-| api | `backend/Dockerfile.api` | `max76667/twitch-transcription-api:<version>` |
+| api         | `backend/Dockerfile.api`         | `max76667/twitch-transcription-api:<version>`         |
 
 The frontend is **not** an image: `npm run build` produces static files that
 Ansible copies to the box for Caddy to serve.
