@@ -29,10 +29,13 @@ standard consume-transform-produce stream processor, not a layering mistake;
 what to avoid is bundling in something on a different scaling axis, like the
 websocket-serving API (see `api.py` below).
 
-`api.py` also exposes `POST /watch`, `DELETE /watch/{streamer_id}`, and
-`GET /transcripts/{streamer_id}/recent` as stubs (HTTP 501) — reserved for
-the orchestrator/multi-streamer and scrollback-history work described under
-"Planned" below, not implemented yet.
+`api.py` also exposes `POST /watch` (queues an `ingest` job for a streamer,
+deduped via a Redis flag so concurrent calls for the same stream don't queue
+twice) and `GET /transcripts/{streamer_id}/recent`, the latter still a stub
+(HTTP 501) — reserved for the scrollback-history work described under
+"Planned" below. There is no `DELETE /watch/{streamer_id}`: stopping is
+driven by viewer count instead (see websocket handler below), not an explicit
+call.
 
 ### ASR model
 
@@ -124,19 +127,22 @@ Partition/consumer-group semantics confirmed by testing:
 - Different groups reading the same topic: each group gets its own
   independent full copy of every message (fan-out, not load-balancing).
 
-## Planned: website / live display (partially built)
+## Website / live display (built, except scrollback)
 
 - **Live subtitles**: built. `api.py` consumes the `transcripts` topic and
   pushes each line to connected clients via `GET /ws/transcripts/{streamer_id}`.
-  Still missing: the actual frontend (React) to connect to it.
+  `frontend/` (React) connects to it and renders them.
+- **Multi-streamer / "paste a URL"**: built. The frontend's **Watch** button
+  calls `POST /watch`; `api.py` dedups via a Redis flag and pushes the
+  streamer onto a Redis list, which KEDA's ScaledJob drains, one `ingest` Job
+  per active stream (see k3s section below) — no custom orchestrator was
+  needed for the dedup/spin-up-tear-down logic originally planned here. A
+  stream stops when its last viewer's websocket closes (with a short grace
+  period for reconnects), not an explicit `DELETE` call.
 - **5-minute scrollback history**: not built. `GET /transcripts/{streamer_id}/recent`
   exists as a stub (501) on `api.py`. Lightweight, text-only, cheap (KBs).
   Either kept client-side (simple array) or server-side (e.g. Redis) if new
   viewers should see recent history instead of a blank screen on join.
-- **Multi-streamer / "paste a URL"**: not built. `POST /watch` and
-  `DELETE /watch/{streamer_id}` exist as stubs (501) on `api.py`, reserved
-  for the orchestrator that will dedup and spin up/tear down a per-stream
-  `ingest` instance on demand (see k3s Job plan below).
 
 ## Planned: correction / retraining feedback loop (not built)
 
@@ -177,10 +183,10 @@ This phase adds two new services (corrections API, corrections consumer)
 plus Redis, on top of the existing 4. It's gated behind the website existing
 first, since there's no UI to trigger a correction without one.
 
-## Planned: Terraform / AWS deployment (not started)
+## Terraform / AWS deployment (built, see docs/aws-deploy.md)
 
-- Self-hosted Kafka on EC2 to start (MSK considered too costly to leave
-  running continuously; revisit later if needed).
+- Self-hosted Kafka on EC2 (MSK considered too costly to leave running
+  continuously).
 - **k3s** (lightweight single-node Kubernetes) on that same EC2 box, replacing
   ECS as the container orchestration layer — chosen over managed EKS because
   EKS's control plane alone costs ~$73/mo, on top of node costs, which blows
@@ -189,23 +195,31 @@ first, since there's no UI to trigger a correction without one.
   estimate. Also more representative of real MLOps tooling than ECS
   (k8s-native patterns like KServe/Kubeflow-style model serving), which
   matters for the CV-driven goal of this project.
-  - `transcriber` (faster-whisper workers) runs as a k8s **Deployment**.
-  - Orchestrator spins up/tears down an `ingest` instance (and, if needed, a
-    dedicated `transcriber`) per active stream as a k8s **Job**,
-    created/deleted via the Kubernetes API instead of ECS `RunTask`/`StopTask`.
-- S3 for audio archive, transcript archive, and the training dataset store.
-- VPC, IAM, security groups via Terraform. Terraform also provisions the EC2
-  box k3s runs on; Ansible (or a simpler deploy script) handles installing
-  k3s and keeping it configured, since the box is long-lived (not
-  destroyed/recreated per session).
-- GPU instances avoided initially — CPU int8 inference has been acceptable
-  so far; revisit only if throughput actually demands it.
-- Core infra (Kafka broker, orchestrator API, website, k3s control plane)
-  runs continuously, same as any real product's backend — no teardown
-  between sessions once real users exist. Cost is instead managed via
-  right-sized/spot instances for the always-on pieces, and scale-to-zero for
-  per-stream `ingest`/`transcriber` Jobs (no pods running for a channel
-  nobody's currently watching).
+  - `transcriber` (faster-whisper workers) runs as a k8s **Deployment**,
+    autoscaled by KEDA on Kafka consumer lag.
+  - `ingest` runs as a k8s **Job** per active stream, created by KEDA's
+    ScaledJob against a Redis list (`api` pushes onto it on `/watch`) instead
+    of a custom orchestrator calling the Kubernetes API directly.
+- VPC, security group, EC2 instance and Elastic IP via Terraform; Ansible
+  installs and configures k3s, KEDA, Caddy (TLS via Let's Encrypt on a free
+  sslip.io domain) and copies the built frontend onto the box.
+- GPU instances avoided — CPU int8 inference has been acceptable so far;
+  revisit only if throughput actually demands it.
+- **Destroyed between sessions, not long-lived**, for cost reasons: the box
+  only runs while actively developing/testing against it (`terraform apply` /
+  `destroy`, wrapped by `scripts/deploy.mjs`), rather than staying up
+  continuously like a real product's backend would. A stopped-but-not-destroyed
+  instance still bills for its EBS volume and Elastic IP, so destroy is
+  preferred over stop. This is a solo/portfolio-project trade-off, made
+  possible by the sslip.io domain (a real registered domain plus DNS would
+  make destroy/recreate cycles more annoying, since the address would need
+  updating each time) — a deployment with real users would keep this running
+  continuously instead, with cost managed via right-sizing/spot instances and
+  scale-to-zero for per-stream `ingest`/`transcriber` Jobs.
+- Not built: S3 (audio/transcript/training-dataset archive) and IAM roles —
+  dropped from this phase since nothing in the current code writes to AWS
+  APIs; both belong with the corrections/retraining phase below, when there's
+  actually something to store.
 
 ## Explicit non-goals
 

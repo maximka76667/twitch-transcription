@@ -95,13 +95,19 @@ overhead? See [`docs/docker-compose.md`](docs/docker-compose.md) — plain
 Docker Compose, no cluster involved, at the cost of no autoscaling and no
 monitoring.
 
-## AWS deployment (in progress)
+## AWS deployment
 
-Moving off local k3d onto a real EC2 box (Terraform-provisioned,
-Ansible-configured), per `DESIGN.md`'s "Planned: Terraform / AWS deployment"
-section. Provisioning and k3s bootstrap are done; app deployment, TLS/domain,
-and frontend serving aren't yet. See
-[`docs/aws-deploy.md`](docs/aws-deploy.md).
+Runs on a single EC2 box (Terraform-provisioned, Ansible-configured): k3s,
+KEDA, Kafka, Redis and the app, with Caddy serving the frontend and TLS over a
+free sslip.io domain, plus optional Prometheus/Grafana. One command brings it
+up end to end:
+
+```
+node scripts/deploy.mjs up
+```
+
+See [`docs/aws-deploy.md`](docs/aws-deploy.md) for prerequisites, what each
+step does, and how to push a new image version to a running box.
 
 ## Backend development
 
