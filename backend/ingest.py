@@ -90,12 +90,14 @@ def ingest_stream(streamer_id: str) -> None:
                 pass
 
             try:
-                stopped = pubsub.get_message(ignore_subscribe_messages=True, timeout=0.5)
+                stopped = pubsub.get_message(
+                    ignore_subscribe_messages=True, timeout=0.5
+                )
             except redis.exceptions.RedisError as e:
                 print(f"[ingest] redis connection issue (stop-check), ignoring: {e}")
                 stopped = None
             if stopped:
-                print(f"[ingest] stop signal for '{streamer_id}'")
+                print(f"[ingest] stop the signal for '{streamer_id}'")
                 break
 
             files = sorted(os.listdir(CHUNK_DIR))
