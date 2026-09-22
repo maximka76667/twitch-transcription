@@ -1,0 +1,49 @@
+# CI only - builds and publishes the backend images. Does not touch AWS or
+# the running cluster (see docs/aws-deploy.md's "Deploying new code" and
+# docs/docker-images.md for the manual CD side of this: kubectl apply -k).
+#
+# Runs the exact same script you'd run locally, so behavior can't drift
+# between your machine and CI - see scripts/push-images.mjs.
+name: Push backend images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+  workflow_dispatch: {}   # lets you re-run manually from the Actions tab, no new commit needed
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  push-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: docker/login-action@v3
+        with:
+          username: max76667
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build, push, and bump the AWS overlay's image tags
+        run: node scripts/push-images.mjs
+
+      # push-images.mjs already edited k8s/overlays/aws/kustomization.yaml
+      # locally (same as it does on your machine) - this only opens a PR if
+      # that left an actual diff, so it's a no-op when every image already
+      # existed on Docker Hub (nothing changed to bump).
+      - uses: peter-evans/create-pull-request@v6
+        with:
+          title: "deploy: bump AWS overlay to new image version"
+          commit-message: "deploy: bump AWS overlay image tags"
+          branch: bump-image-tags
+          body: |
+            Images pushed by CI from this commit. Merging this does **not**
+            deploy anything by itself - see docs/aws-deploy.md to apply it.
