@@ -8,18 +8,30 @@
 # Reach Grafana with:
 #   kubectl port-forward -n monitoring svc/monitoring-grafana 3000:80
 # then open http://localhost:3000 (login: admin / admin)
-
 grafana:
-  adminPassword: admin
-  persistence:
-    enabled: true
-    size: 1Gi
-
+    adminPassword: ENC[AES256_GCM,data:Yp11MdyZPA==,iv:/82zZYQOXQgaeHARFlAcFsLvZVYFaILHEz3SFnUKBFg=,tag:mLsdqer/ZN+f/hbpbll+QA==,type:str]
+    persistence:
+        enabled: true
+        size: 1Gi
 prometheus:
-  prometheusSpec:
-    retention: 6h
-    # No storageSpec set - Prometheus falls back to an emptyDir, which is fine for a
-    # local dev cluster that gets torn down/recreated.
-
+    prometheusSpec:
+        retention: 6h
+        # No storageSpec set - Prometheus falls back to an emptyDir, which is fine for a
+        # local dev cluster that gets torn down/recreated.
 alertmanager:
-  enabled: false
+    enabled: false
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBDUUt0NExCU05Nd1MwbW15
+            VTd4Tm1pZDJwOTgyK21qSklVQ0oybmJMbUJZCmFRRHVUTkF3QUFDMEdJaFNrZmZw
+            b2U5b0EvbGFzSmhUM0Z0WkFaOVo5eTAKLS0tIG1LSUJIVENmQXd4QXIxdE5PU2kx
+            cDk5YVMrUGZlODhuT0VHQjgzQW80QXMKN1fMm142y3mZgiyea0ol8U9YcP1pWuL/
+            8mj878rR2W49+TVlT2PYnMEC0Jp59qA8XOQpaPXrdBbGelkGny2zLQ==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age18q0j7aatkrtwaj656dhgcmsspwav9l59vd84cd69640rxe5uavlsj72ypp
+    encrypted_regex: ^adminPassword$
+    lastmodified: "2026-09-24T19:42:06Z"
+    mac: ENC[AES256_GCM,data:ZJQ07HLs1fLZC/DUlcBVsWWLpFT1x1/hTnz8La2oGHfRpRFgKbm9w7qlyNM+JF8YMx6OmEvuITTQsw6Lqdz3zqh2jg7/uSarKiQVzSG1k/YR1hsn8vFu2ChXCW+o54GApXmcIJSoi9Ijnr7qlW3xZ+Eg2uW1qK8oz4xGkYvzBEQ=,iv:2AhkFnVTolFkmHeJ4wRUdApDOW+S6/lo9/f09F7B4oc=,tag:n1u86dZsQ5jvE6l1L86EQw==,type:str]
+    version: 3.13.3

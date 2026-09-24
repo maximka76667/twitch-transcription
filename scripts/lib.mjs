@@ -2,7 +2,8 @@
 // (Windows/Linux/Mac) - just shells out to docker/k3d/kubectl/helm.
 
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -63,6 +64,28 @@ export function capture(cmd, cmdArgs, { cwd } = {}) {
   return { status: result.status, stdout: result.stdout ?? "" };
 }
 
+// If a values file was encrypted with SOPS (has a top-level `sops:` key),
+// decrypt it to a throwaway temp file and return that path instead - helm
+// has no idea what SOPS or ENC[...] means, it just needs real values at the
+// moment it runs. A plain, unencrypted file passes through untouched, so
+// this is safe to call on every values file regardless of whether it's
+// actually encrypted.
+function resolveValuesFile(filePath) {
+  const raw = readFileSync(filePath, "utf8");
+  if (!/^sops:/m.test(raw)) return filePath;
+
+  const decrypted = capture("sops", ["--decrypt", filePath]);
+  if (decrypted.status !== 0) {
+    throw new Error(
+      `sops failed to decrypt ${filePath} - is the age key at %AppData%\\sops\\age\\keys.txt (or $SOPS_AGE_KEY_FILE) present?`,
+    );
+  }
+  const tmpDir = mkdtempSync(path.join(os.tmpdir(), "sops-decrypted-"));
+  const tmpFile = path.join(tmpDir, path.basename(filePath));
+  writeFileSync(tmpFile, decrypted.stdout);
+  return tmpFile;
+}
+
 // Installs (or upgrades) the kube-prometheus-stack helm release plus our PodMonitors.
 // Shared by the local k3d script and the AWS deploy script.
 //   kubeconfig:  path to talk to a specific cluster (AWS); omitted = current kubectl context
@@ -76,10 +99,9 @@ export function installMonitoring({ kubeconfig, extraValues = [] } = {}) {
   }
 
   const kubeArgs = kubeconfig ? ["--kubeconfig", kubeconfig] : [];
-  const valuesArgs = [MONITORING_VALUES, ...extraValues].flatMap((f) => [
-    "-f",
-    f,
-  ]);
+  const valuesArgs = [MONITORING_VALUES, ...extraValues]
+    .map(resolveValuesFile)
+    .flatMap((f) => ["-f", f]);
 
   step("Checking 'monitoring' helm release");
   // repo add/update runs unconditionally, before the install-vs-upgrade

@@ -1,0 +1,15 @@
+# SOPS config - tells `sops` which files to encrypt and how, and which keys
+# within them count as secrets. Only keys matching `encrypted_regex` get
+# encrypted; everything else in a matched file (retention, sizes, feature
+# flags) stays plaintext and readable in git diffs.
+#
+# The private half of this age key lives at %AppData%\sops\age\keys.txt on
+# Windows (SOPS' own default lookup path, no env var needed) - back it up
+# like an SSH key. Losing it means re-encrypting from scratch with a new one.
+creation_rules:
+  # [\\/] instead of a literal / - on Windows sops matches against a
+  # backslash-separated path, so a Linux-style path_regex silently matches
+  # nothing there (a known sops issue, not specific to this repo).
+  - path_regex: k8s[\\/]monitoring[\\/]values\.yaml$
+    encrypted_regex: "^adminPassword$"
+    age: age18q0j7aatkrtwaj656dhgcmsspwav9l59vd84cd69640rxe5uavlsj72ypp
